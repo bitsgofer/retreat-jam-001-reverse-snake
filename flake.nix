@@ -27,6 +27,8 @@
             pkgs.rustc
             pkgs.cargo
             pkgs.nixfmt
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.pkg-config
             pkgs.wayland
             pkgs.alsa-lib
@@ -37,6 +39,8 @@
             pkgs.vulkan-loader
             pkgs.mesa
             pkgs.libdrm
+          ]
+          ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           ];
 
           shellHook = ''
@@ -47,6 +51,8 @@
             # Assets path are relative to BEVY_ASSET_ROOT
             export BEVY_ASSET_ROOT="$repotRoot"
 
+          ''
+          + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
             # Bevy/winit dlopen() these at runtime (e.g. libxkbcommon for
             # Wayland keyboard input) instead of linking them at build time,
             # so having them in `packages` above isn't enough on non-NixOS
