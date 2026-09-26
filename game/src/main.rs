@@ -1,5 +1,8 @@
 use bevy::prelude::*;
 
+mod player;
+use crate::player::PlayerPlugin;
+
 fn main() {
     App::new()
         .add_plugins(
@@ -15,6 +18,7 @@ fn main() {
                 }),
         )
         .add_systems(Startup, setup_camera)
+        .add_plugins(PlayerPlugin)
         .run();
 }
 
