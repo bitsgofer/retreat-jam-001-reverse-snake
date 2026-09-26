@@ -27,7 +27,7 @@ repoRoot := invocation_directory() # OR: env("PWD", shell("pwd"))
 # Build: game
 [group("build")]
 build:
-    @echo "cargo build"
+    cargo build
 
 # ##############################################################################
 # run ##########################################################################
@@ -36,7 +36,7 @@ build:
 # Run: game
 [group("run")]
 run:
-    @echo "cargo run -p reverse-snake"
+    cargo run -p reverse-snake
 
 # ##############################################################################
 # test #########################################################################

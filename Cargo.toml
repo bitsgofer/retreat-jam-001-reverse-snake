@@ -1,0 +1,15 @@
+[workspace]
+members = [
+	"game"
+]
+resolver = "2"
+exclude = ["references"]
+
+[workspace.package]
+name    = "reverse-snake"
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+bevy = { version = "0.19.1" }
+log  = { version = "0.4.34" }
