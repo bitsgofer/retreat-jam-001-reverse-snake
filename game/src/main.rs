@@ -3,6 +3,9 @@ use bevy::prelude::*;
 mod player;
 use crate::player::PlayerPlugin;
 
+mod level;
+use crate::level::LevelPlugin;
+
 fn main() {
     App::new()
         .add_plugins(
@@ -19,6 +22,7 @@ fn main() {
         )
         .add_systems(Startup, setup_camera)
         .add_plugins(PlayerPlugin)
+        .add_plugins(LevelPlugin)
         .run();
 }
 
