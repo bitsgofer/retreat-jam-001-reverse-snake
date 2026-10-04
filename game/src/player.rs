@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+use crate::level::GridPos;
+
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
@@ -58,7 +60,8 @@ fn spawn_player(
             texture,
             TextureAtlas { layout, index: 0 },
         ),
-        Transform::from_translation(Vec3::ZERO),
+        Transform::from_translation(GridPos::new(0, 0).to_world().extend(0.0)),
+        bevy::sprite::Anchor::BOTTOM_LEFT,
         Player,
         AnimationState {
             facing: Facing::Down,
