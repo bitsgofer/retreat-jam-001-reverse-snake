@@ -9,7 +9,7 @@ impl Plugin for LevelPlugin {
 	}
 }
 
-const TILE_SIZE: f32 = 16.0;
+pub const TILE_SIZE: f32 = 16.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TileKind {
@@ -66,17 +66,24 @@ impl Tile {
 	}
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GridPos {
     pub row: i32, // vertical index, used for Y
     pub col: i32, // horizontal index, used for X
 }
 
+/// The (row, col) location of a cell inside a grid/matrix.
 impl GridPos {
     pub fn new(row: i32, col: i32) -> Self {
         GridPos{row, col}
     }
 
+    /// Translate the original GridPos to a new coordinate.
+    pub fn translate(self, delta_row: i32, delta_col: i32) -> GridPos {
+        GridPos::new(self.row + delta_row, self.col + delta_col)
+    }
+
+    /// Return the (x, y) world coordinates of the cell's bottom-left anchor.
     pub fn to_world(self) -> Vec2 {
         // IMPORTANT! row & col are swapped when making coordinates.
         // We tend to think of cells via (row, col): vertical then horizontal.
@@ -125,6 +132,13 @@ impl TileGrid {
 
 	fn get_tile(&self, pos: GridPos) -> Option<Tile> {
 		self.tiles.get(&pos).copied()
+	}
+
+	pub fn is_walkable(&self, pos: GridPos) -> bool {
+		match self.tiles.get(&pos) {
+			Some(tile) if tile.kind == TileKind::Floor => true,
+			_ => false,
+        }
 	}
 
 	fn grid_to_world(&self, row: i32, col: i32) -> Vec2 {
@@ -188,6 +202,10 @@ fn setup_level(mut commands: Commands) {
 		tile_grid.set_tile(GridPos::new(row, left), Tile::wall());
 		tile_grid.set_tile(GridPos::new(row, right), Tile::wall());
 	}
+	for row in -3..=2 {
+		tile_grid.set_tile(GridPos::new(row, -4), Tile::wall());
+	}
+
 
 	commands.insert_resource(tile_grid);
 }

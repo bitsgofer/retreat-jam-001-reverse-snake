@@ -1,13 +1,17 @@
 use bevy::prelude::*;
 
 use crate::level::GridPos;
+use crate::level::TileGrid;
+use crate::level::TILE_SIZE as GRID_TILE_SIZE;
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_player)
-            .add_systems(Update, (move_player, animate_player));
+        app.add_systems(Startup, spawn_player).add_systems(
+            Update,
+            (tween_grid_step, start_grid_step, animate_player).chain(),
+        );
     }
 }
 
@@ -27,7 +31,7 @@ const SPRITE_PATH: &str = "player.png";
 const TILE_SIZE: UVec2 = UVec2::new(16, 16); // (width, height) of one sprite
 const MAX_FRAMES_PER_ANIMATION: usize = 16;
 const ANIMATION_COUNT: usize = 3;
-const MOVE_SPEED: f32 = 140.0; // pixels per second
+const MOVE_SPEED: f32 = 140.0; // pixels per second; how fast things move in the grid
 const SECONDS_PER_FRAME: f32 = 0.1;
 
 #[derive(Component)]
@@ -39,6 +43,24 @@ struct AnimationState {
 
 #[derive(Component, Deref, DerefMut)]
 struct AnimationTimer(Timer);
+
+/// Help tween world coordinates.
+#[derive(Component)]
+struct TweenCoordinates {
+    from: Vec2, // (x, y) world coordinates
+    to: Vec2, // (x, y) world coordinates
+    timer: Timer,
+}
+
+impl TweenCoordinates {
+    pub fn new(from: Vec2, to: Vec2, px_per_second: f32) -> Self {
+        TweenCoordinates{
+            from: from,
+            to: to,
+            timer: Timer::from_seconds(GRID_TILE_SIZE/px_per_second, TimerMode::Once),
+        }
+    }
+}
 
 fn spawn_player(
     mut commands: Commands,
@@ -63,6 +85,7 @@ fn spawn_player(
         Transform::from_translation(GridPos::new(0, 0).to_world().extend(0.0)),
         bevy::sprite::Anchor::BOTTOM_LEFT,
         Player,
+        GridPos::new(0, 0),
         AnimationState {
             facing: Facing::Down,
             moving: false,
@@ -72,56 +95,95 @@ fn spawn_player(
     ));
 }
 
-fn move_player(
+/// Returns the fixed-priority held direction (Up > Down > Left > Right) as
+/// `(d_row, d_col, Facing)`, or `None` if no arrow key is held.
+fn pressed_direction(input: &ButtonInput<KeyCode>) -> Option<(i32, i32, Facing)> {
+    if input.pressed(KeyCode::ArrowUp) {
+        Some((1, 0, Facing::Up))
+    } else if input.pressed(KeyCode::ArrowDown) {
+        Some((-1, 0, Facing::Down))
+    } else if input.pressed(KeyCode::ArrowLeft) {
+        Some((0, -1, Facing::Left))
+    } else if input.pressed(KeyCode::ArrowRight) {
+        Some((0, 1, Facing::Right))
+    } else {
+        None
+    }
+}
+
+/// Starts a new grid step for the player if a direction is held and the
+/// destination tile is walkable. Runs only when the player has no in-flight
+/// `TweenCoordinates`, so a held key chains into the next tile as soon as the
+/// current step finishes.
+fn start_grid_step(
+    mut commands: Commands,
     input: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    mut player: Query<(&mut Transform, &mut AnimationState), With<Player>>,
+    tile_grid: Res<TileGrid>,
+    mut player: Query<
+        (
+            Entity,
+            &Transform,
+            &mut GridPos,
+            &mut AnimationState,
+            &mut Sprite,
+        ),
+        (With<Player>, Without<TweenCoordinates>),
+    >,
 ) {
-    let Ok((mut transform, mut anim)) = player.single_mut() else {
+    let Ok((entity, transform, mut pos, mut anim, mut sprite)) = player.single_mut() else {
         return;
     };
 
-    let mut direction = Vec2::ZERO;
-    if input.pressed(KeyCode::ArrowLeft) {
-        direction.x -= 1.0;
-    }
-    if input.pressed(KeyCode::ArrowRight) {
-        direction.x += 1.0;
-    }
-    if input.pressed(KeyCode::ArrowUp) {
-        direction.y += 1.0;
-    }
-    if input.pressed(KeyCode::ArrowDown) {
-        direction.y -= 1.0;
+    let Some((d_row, d_col, facing)) = pressed_direction(&input) else {
+        anim.moving = false;
+        return;
+    };
+
+    anim.facing = facing;
+    // Flip the texture's UVs, not the Transform scale: the sprite is
+    // anchored BOTTOM_LEFT (to match tile anchoring), and a negative
+    // Transform.scale.x mirrors the quad around that anchor point, making it
+    // extend into the *previous* tile instead of the current one.
+    sprite.flip_x = facing == Facing::Left;
+
+    let dest = pos.translate(d_row, d_col);
+    if !tile_grid.is_walkable(dest) {
+        // Blocked by a wall (or the edge of the grid): face the direction
+        // but don't move.
+        anim.moving = false;
+        return;
     }
 
-    if direction != Vec2::ZERO {
-        let delta = direction.normalize() * MOVE_SPEED * time.delta_secs();
-        transform.translation.x = (transform.translation.x + delta.x).round();
-        transform.translation.y = (transform.translation.y + delta.y).round();
-        anim.moving = true;
+    commands.entity(entity).insert(TweenCoordinates::new(
+        transform.translation.xy(),
+        dest.to_world(),
+        50.0,
+    ));
+    *pos = dest;
+    anim.moving = true;
+}
 
-        // Update facing based on dominant direction
-        if direction.x.abs() > direction.y.abs() {
-            anim.facing = if direction.x > 0.0 {
-                Facing::Right
-            } else {
-                Facing::Left
-            };
-        } else {
-            anim.facing = if direction.y > 0.0 {
-                Facing::Up
-            } else {
-                Facing::Down
-            };
-        }
+/// Advances the in-flight `TweenCoordinates` tween, snapping to the destination and
+/// removing the component once the step completes.
+fn tween_grid_step(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut player: Query<(Entity, &mut Transform, &mut TweenCoordinates, &mut AnimationState), With<Player>>,
+) {
+    let Ok((entity, mut transform, mut transformTween, mut anim)) = player.single_mut() else {
+        return;
+    };
 
-        transform.scale.x = if anim.facing == Facing::Left {
-            -1.0
-        } else {
-            1.0
-        };
-    } else {
+    transformTween.timer.tick(time.delta());
+
+    let interpolated = transformTween.from.lerp(transformTween.to, transformTween.timer.fraction());
+    transform.translation.x = interpolated.x.round();
+    transform.translation.y = interpolated.y.round();
+
+    if transformTween.timer.is_finished() {
+        transform.translation.x = transformTween.to.x;
+        transform.translation.y = transformTween.to.y;
+        commands.entity(entity).remove::<TweenCoordinates>();
         anim.moving = false;
     }
 }
@@ -141,8 +203,8 @@ fn animate_player(
 
     // Compute the target row and current position in the atlas
     let target_row = row_zero_based(anim.facing);
-    let mut current_col = atlas.index % MAX_FRAMES_PER_ANIMATION;
     let mut current_row = atlas.index / MAX_FRAMES_PER_ANIMATION;
+    let mut current_col = atlas.index % MAX_FRAMES_PER_ANIMATION;
 
     // If the facing changed (or we weren't on a walking row), snap to the first frame of the target row
     if current_row != target_row {
