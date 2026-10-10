@@ -5,3 +5,12 @@ edition = { workspace = true }
 
 [dependencies]
 bevy       = { workspace = true }
+
+[features]
+# Faster iteration for local dev: dynamic-links Bevy (skip relinking the
+# engine on every `cargo run`) and hot-reloads assets (sprites, audio,
+# etc.) on file change. Not for release builds.
+dev = [
+	"bevy/dynamic_linking",
+	"bevy/file_watcher",
+]

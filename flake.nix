@@ -25,6 +25,8 @@
             pkgs.shfmt
             pkgs.shellcheck
             pkgs.rustc
+			pkgs.rust-analyzer
+			pkgs.clippy
             pkgs.cargo
             pkgs.nixfmt
           ]
