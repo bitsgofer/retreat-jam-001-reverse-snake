@@ -1,0 +1,4 @@
+(
+    move_speed: 60.0,
+    seconds_per_frame: 0.05,
+)

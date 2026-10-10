@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::level::GridPos;
 use crate::level::TileGrid;
 use crate::level::TILE_SIZE as GRID_TILE_SIZE;
+use crate::tunables::{self, Tunables, TunablesHandle};
 
 pub struct PlayerPlugin;
 
@@ -10,7 +11,13 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_player).add_systems(
             Update,
-            (tween_grid_step, start_grid_step, animate_player).chain(),
+            (
+                tween_grid_step,
+                start_grid_step,
+                animate_player,
+                apply_tunables_hot_reload,
+            )
+                .chain(),
         );
     }
 }
@@ -31,8 +38,6 @@ const SPRITE_PATH: &str = "player.png";
 const TILE_SIZE: UVec2 = UVec2::new(16, 16); // (width, height) of one sprite
 const MAX_FRAMES_PER_ANIMATION: usize = 16;
 const ANIMATION_COUNT: usize = 3;
-const MOVE_SPEED: f32 = 140.0; // pixels per second; how fast things move in the grid
-const SECONDS_PER_FRAME: f32 = 0.1;
 
 #[derive(Component)]
 struct AnimationState {
@@ -66,7 +71,10 @@ fn spawn_player(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    tunables_handle: Res<TunablesHandle>,
+    tunables_assets: Res<Assets<Tunables>>,
 ) {
+    let tunables = tunables::current(&tunables_handle, &tunables_assets);
     let texture = asset_server.load(SPRITE_PATH);
     let layout = atlas_layouts.add(TextureAtlasLayout::from_grid(
         TILE_SIZE,
@@ -91,7 +99,10 @@ fn spawn_player(
             moving: false,
             was_moving: false,
         },
-        AnimationTimer(Timer::from_seconds(SECONDS_PER_FRAME, TimerMode::Repeating)),
+        AnimationTimer(Timer::from_seconds(
+            tunables.seconds_per_frame,
+            TimerMode::Repeating,
+        )),
     ));
 }
 
@@ -119,6 +130,8 @@ fn start_grid_step(
     mut commands: Commands,
     input: Res<ButtonInput<KeyCode>>,
     tile_grid: Res<TileGrid>,
+    tunables_handle: Res<TunablesHandle>,
+    tunables_assets: Res<Assets<Tunables>>,
     mut player: Query<
         (
             Entity,
@@ -154,10 +167,11 @@ fn start_grid_step(
         return;
     }
 
+    let tunables = tunables::current(&tunables_handle, &tunables_assets);
     commands.entity(entity).insert(TweenCoordinates::new(
         transform.translation.xy(),
         dest.to_world(),
-        50.0,
+        tunables.move_speed,
     ));
     *pos = dest;
     anim.moving = true;
@@ -241,6 +255,30 @@ fn animate_player(
 
     // Update previous movement state
     anim.was_moving = anim.moving;
+}
+
+/// `AnimationTimer`'s duration is set once at spawn; when `tunables.ron`
+/// hot-reloads, push the new `seconds_per_frame` into the already-spawned
+/// player instead of waiting for a respawn.
+fn apply_tunables_hot_reload(
+    mut events: MessageReader<AssetEvent<Tunables>>,
+    tunables_handle: Res<TunablesHandle>,
+    tunables_assets: Res<Assets<Tunables>>,
+    mut player: Query<&mut AnimationTimer, With<Player>>,
+) {
+    let reloaded = events
+        .read()
+        .any(|event| event.is_modified(tunables_handle.0.id()));
+    if !reloaded {
+        return;
+    }
+
+    let tunables = tunables::current(&tunables_handle, &tunables_assets);
+    for mut timer in &mut player {
+        timer.set_duration(std::time::Duration::from_secs_f32(
+            tunables.seconds_per_frame,
+        ));
+    }
 }
 
 fn row_start_index(facing: Facing) -> usize {
