@@ -3,3 +3,4 @@ assets/** filter=lfs diff=lfs merge=lfs -text
 
 # Plain-text tunable values, edited often: keep out of LFS so diffs stay readable.
 assets/tunables.ron -filter -diff -merge text
+assets/level_layout.ron -filter -diff -merge text

@@ -1,15 +1,110 @@
-use bevy::prelude::*;
 use std::collections::HashMap;
+use std::fmt;
+
+use bevy::asset::io::Reader;
+use bevy::asset::{AssetLoader, LoadContext};
+use bevy::prelude::*;
+use serde::Deserialize;
 
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (setup, setup_level, spawn_tiles).chain());
+        app.init_asset::<LevelLayout>()
+            .init_asset_loader::<LevelLayoutLoader>()
+            .add_systems(
+                Startup,
+                (load_level_layout, setup, setup_level, spawn_tiles).chain(),
+            )
+            .add_systems(Update, rebuild_level_on_layout_change);
     }
 }
 
 pub const TILE_SIZE: f32 = 16.0;
+
+const LEVEL_LAYOUT_PATH: &str = "level_layout.ron";
+
+/// Hand-placed wall tiles added on top of the grid's auto-generated
+/// border, loaded from `assets/level_layout.ron`. With the `dev`
+/// feature's asset hot-reload, saving that file updates this on the
+/// next run — no rebuild needed.
+#[derive(Asset, TypePath, Deserialize, Clone, Debug)]
+pub struct LevelLayout {
+    pub walls: Vec<(i32, i32)>, // extra (row, col) wall tiles
+}
+
+impl Default for LevelLayout {
+    fn default() -> Self {
+        LevelLayout {
+            walls: (-3..=2).map(|row| (row, -4)).collect(),
+        }
+    }
+}
+
+#[derive(Resource)]
+struct LevelLayoutHandle(Handle<LevelLayout>);
+
+fn load_level_layout(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.insert_resource(LevelLayoutHandle(asset_server.load(LEVEL_LAYOUT_PATH)));
+}
+
+fn current_layout(handle: &LevelLayoutHandle, assets: &Assets<LevelLayout>) -> LevelLayout {
+    assets.get(&handle.0).cloned().unwrap_or_default()
+}
+
+#[derive(Default, TypePath)]
+struct LevelLayoutLoader;
+
+#[non_exhaustive]
+#[derive(Debug)]
+enum LevelLayoutLoaderError {
+    Io(std::io::Error),
+    Ron(ron::error::SpannedError),
+}
+
+impl fmt::Display for LevelLayoutLoaderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LevelLayoutLoaderError::Io(e) => write!(f, "could not read level layout file: {e}"),
+            LevelLayoutLoaderError::Ron(e) => write!(f, "could not parse level layout RON: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for LevelLayoutLoaderError {}
+
+impl From<std::io::Error> for LevelLayoutLoaderError {
+    fn from(e: std::io::Error) -> Self {
+        LevelLayoutLoaderError::Io(e)
+    }
+}
+
+impl From<ron::error::SpannedError> for LevelLayoutLoaderError {
+    fn from(e: ron::error::SpannedError) -> Self {
+        LevelLayoutLoaderError::Ron(e)
+    }
+}
+
+impl AssetLoader for LevelLayoutLoader {
+    type Asset = LevelLayout;
+    type Settings = ();
+    type Error = LevelLayoutLoaderError;
+
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _settings: &(),
+        _load_context: &mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await?;
+        Ok(ron::de::from_bytes::<LevelLayout>(&bytes)?)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["ron"]
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TileKind {
@@ -91,6 +186,11 @@ impl GridPos {
         Vec2::new(self.col as f32 * TILE_SIZE, self.row as f32 * TILE_SIZE)
     }
 }
+
+/// Marks an entity spawned by [`spawn_tile_sprites`], so a level rebuild
+/// can find and despawn the previous tiles before respawning new ones.
+#[derive(Component)]
+struct TileSprite;
 
 #[derive(Resource)]
 pub struct TileGrid {
@@ -181,7 +281,10 @@ fn setup(
     commands.insert_resource(spritesheet_registry);
 }
 
-fn setup_level(mut commands: Commands) {
+/// Builds the grid: floor everywhere, an auto-generated border (derived
+/// from the grid's own dimensions), plus the hand-placed walls from
+/// `layout`.
+fn build_tile_grid(layout: &LevelLayout) -> TileGrid {
     // let mut tile_grid = TileGrid::new(20, 12);
     let mut tile_grid = TileGrid::new(20, 10);
 
@@ -191,11 +294,7 @@ fn setup_level(mut commands: Commands) {
         }
     }
 
-    // walls
-    // let bottom = tile_grid.row_range().start;
-    // let top = tile_grid.row_range().end-1;
-    // let left = tile_grid.col_range().start;
-    // let right = tile_grid.col_range().end-1;
+    // border walls, generated from the grid's own dimensions
     let bottom = tile_grid.bottom();
     let top = tile_grid.top();
     let left = tile_grid.left();
@@ -208,17 +307,30 @@ fn setup_level(mut commands: Commands) {
         tile_grid.set_tile(GridPos::new(row, left), Tile::wall());
         tile_grid.set_tile(GridPos::new(row, right), Tile::wall());
     }
-    for row in -3..=2 {
-        tile_grid.set_tile(GridPos::new(row, -4), Tile::wall());
+
+    // hand-placed walls, editable via assets/level_layout.ron
+    for (row, col) in &layout.walls {
+        tile_grid.set_tile(GridPos::new(*row, *col), Tile::wall());
     }
 
-    commands.insert_resource(tile_grid);
+    tile_grid
 }
 
-fn spawn_tiles(
+fn setup_level(
     mut commands: Commands,
-    tile_grid: Res<TileGrid>,
-    spritesheet_registry: Res<SpriteSheetRegistry>,
+    layout_handle: Res<LevelLayoutHandle>,
+    layout_assets: Res<Assets<LevelLayout>>,
+) {
+    let layout = current_layout(&layout_handle, &layout_assets);
+    commands.insert_resource(build_tile_grid(&layout));
+}
+
+/// Spawns one sprite per tile in `tile_grid`, marked with [`TileSprite`]
+/// so a later rebuild can find and despawn them.
+fn spawn_tile_sprites(
+    commands: &mut Commands,
+    tile_grid: &TileGrid,
+    spritesheet_registry: &SpriteSheetRegistry,
 ) {
     for (pos, tile) in &tile_grid.tiles {
         // let world_pos = tile_grid.grid_to_world(*row, *col);
@@ -243,6 +355,57 @@ fn spawn_tiles(
             Transform::from_translation(world_pos.extend(0.0)),
             bevy::sprite::Anchor::BOTTOM_LEFT,
             Name::new(format!("Tile({}, {})", pos.row, pos.col)),
+            TileSprite,
         ));
     }
+}
+
+fn spawn_tiles(
+    mut commands: Commands,
+    tile_grid: Res<TileGrid>,
+    spritesheet_registry: Res<SpriteSheetRegistry>,
+) {
+    spawn_tile_sprites(&mut commands, &tile_grid, &spritesheet_registry);
+}
+
+/// Reacts to `assets/level_layout.ron` finishing its (async) initial load
+/// or being hot-reloaded while the game is running: despawns the current
+/// tile sprites and rebuilds the grid from the fresh layout.
+///
+/// `setup_level`/`spawn_tiles` build an initial grid at `Startup` using
+/// whatever `current_layout` returns (likely `LevelLayout::default()`,
+/// since the real file is still loading asynchronously at that point) so
+/// `TileGrid` always exists before any `Update` system — such as
+/// `player::start_grid_step` — looks for it. This system is what corrects
+/// that initial guess once the real file loads, and keeps it in sync on
+/// every subsequent edit.
+fn rebuild_level_on_layout_change(
+    mut commands: Commands,
+    mut events: MessageReader<AssetEvent<LevelLayout>>,
+    layout_handle: Res<LevelLayoutHandle>,
+    layout_assets: Res<Assets<LevelLayout>>,
+    spritesheet_registry: Res<SpriteSheetRegistry>,
+    existing_tiles: Query<Entity, With<TileSprite>>,
+) {
+    let id = layout_handle.0.id();
+    let should_rebuild = events.read().any(|event| {
+        event.is_added(id) || event.is_modified(id) || event.is_loaded_with_dependencies(id)
+    });
+    if !should_rebuild {
+        return;
+    }
+
+    info!("Rebuilding level");
+
+    let Some(layout) = layout_assets.get(&layout_handle.0) else {
+        return;
+    };
+
+    for entity in &existing_tiles {
+        commands.entity(entity).despawn();
+    }
+
+    let tile_grid = build_tile_grid(layout);
+    spawn_tile_sprites(&mut commands, &tile_grid, &spritesheet_registry);
+    commands.insert_resource(tile_grid);
 }

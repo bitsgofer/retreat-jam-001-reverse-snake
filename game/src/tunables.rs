@@ -13,7 +13,12 @@ impl Plugin for TunablesPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<Tunables>()
             .init_asset_loader::<TunablesLoader>()
-            .add_systems(Startup, load_tunables);
+            // `PreStartup` is its own schedule that fully runs (and flushes
+            // its Commands) before `Startup` begins, so any `Startup`
+            // system — in this plugin or another — is guaranteed to see
+            // `TunablesHandle` already inserted, regardless of system
+            // ordering within `Startup` itself.
+            .add_systems(PreStartup, load_tunables);
     }
 }
 
