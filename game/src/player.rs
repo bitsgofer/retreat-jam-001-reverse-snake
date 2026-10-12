@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 
 use crate::level::GridPos;
-use crate::level::TileGrid;
 use crate::level::TILE_SIZE as GRID_TILE_SIZE;
+use crate::level::TileGrid;
 use crate::tunables::{self, Tunables, TunablesHandle};
 
 pub struct PlayerPlugin;
@@ -53,16 +53,16 @@ struct AnimationTimer(Timer);
 #[derive(Component)]
 struct TweenCoordinates {
     from: Vec2, // (x, y) world coordinates
-    to: Vec2, // (x, y) world coordinates
+    to: Vec2,   // (x, y) world coordinates
     timer: Timer,
 }
 
 impl TweenCoordinates {
     pub fn new(from: Vec2, to: Vec2, px_per_second: f32) -> Self {
-        TweenCoordinates{
+        TweenCoordinates {
             from: from,
             to: to,
-            timer: Timer::from_seconds(GRID_TILE_SIZE/px_per_second, TimerMode::Once),
+            timer: Timer::from_seconds(GRID_TILE_SIZE / px_per_second, TimerMode::Once),
         }
     }
 }
@@ -182,7 +182,15 @@ fn start_grid_step(
 fn tween_grid_step(
     mut commands: Commands,
     time: Res<Time>,
-    mut player: Query<(Entity, &mut Transform, &mut TweenCoordinates, &mut AnimationState), With<Player>>,
+    mut player: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut TweenCoordinates,
+            &mut AnimationState,
+        ),
+        With<Player>,
+    >,
 ) {
     let Ok((entity, mut transform, mut transformTween, mut anim)) = player.single_mut() else {
         return;
@@ -190,7 +198,9 @@ fn tween_grid_step(
 
     transformTween.timer.tick(time.delta());
 
-    let interpolated = transformTween.from.lerp(transformTween.to, transformTween.timer.fraction());
+    let interpolated = transformTween
+        .from
+        .lerp(transformTween.to, transformTween.timer.fraction());
     transform.translation.x = interpolated.x.round();
     transform.translation.y = interpolated.y.round();
 
