@@ -1,8 +1,10 @@
 use bevy::prelude::*;
 
+use crate::level::GameOver;
 use crate::level::GridPos;
 use crate::level::TILE_SIZE as GRID_TILE_SIZE;
 use crate::level::TileGrid;
+use crate::level::TileKind;
 use crate::tunables::{self, Tunables, TunablesHandle};
 
 pub struct PlayerPlugin;
@@ -13,6 +15,7 @@ impl Plugin for PlayerPlugin {
             Update,
             (
                 tween_grid_step,
+                check_exit_reached,
                 start_grid_step,
                 animate_player,
                 apply_tunables_hot_reload,
@@ -130,6 +133,7 @@ fn start_grid_step(
     mut commands: Commands,
     input: Res<ButtonInput<KeyCode>>,
     tile_grid: Res<TileGrid>,
+    game_over: Res<GameOver>,
     tunables_handle: Res<TunablesHandle>,
     tunables_assets: Res<Assets<Tunables>>,
     mut player: Query<
@@ -143,6 +147,10 @@ fn start_grid_step(
         (With<Player>, Without<TweenCoordinates>),
     >,
 ) {
+    if game_over.0 {
+        return;
+    }
+
     let Ok((entity, transform, mut pos, mut anim, mut sprite)) = player.single_mut() else {
         return;
     };
@@ -175,6 +183,29 @@ fn start_grid_step(
     ));
     *pos = dest;
     anim.moving = true;
+}
+
+/// Ends the game once the player comes to rest on the `Exit` tile. Runs
+/// after `tween_grid_step` (so `GridPos` reflects where the player has
+/// actually arrived, not mid-tween) and before `start_grid_step` (so
+/// movement stops on the same frame the exit is reached).
+fn check_exit_reached(
+    mut game_over: ResMut<GameOver>,
+    tile_grid: Res<TileGrid>,
+    player: Query<&GridPos, (With<Player>, Without<TweenCoordinates>)>,
+) {
+    if game_over.0 {
+        return;
+    }
+
+    let Ok(pos) = player.single() else {
+        return;
+    };
+
+    if tile_grid.get_tile(*pos).map(|tile| tile.kind) == Some(TileKind::Exit) {
+        game_over.0 = true;
+        info!("You escaped the maze! Game over.");
+    }
 }
 
 /// Advances the in-flight `TweenCoordinates` tween, snapping to the destination and

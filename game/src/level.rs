@@ -12,6 +12,7 @@ impl Plugin for LevelPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<LevelLayout>()
             .init_asset_loader::<LevelLayoutLoader>()
+            .init_resource::<GameOver>()
             .add_systems(
                 Startup,
                 (load_level_layout, setup, setup_level, spawn_tiles).chain(),
@@ -19,6 +20,12 @@ impl Plugin for LevelPlugin {
             .add_systems(Update, rebuild_level_on_layout_change);
     }
 }
+
+/// Set once the player reaches the `Exit` tile; see
+/// `player::check_exit_reached` (sets it) and `player::start_grid_step`
+/// (reads it, to stop the player moving once the game has ended).
+#[derive(Resource, Default)]
+pub struct GameOver(pub bool);
 
 pub const TILE_SIZE: f32 = 16.0;
 
@@ -110,6 +117,7 @@ impl AssetLoader for LevelLayoutLoader {
 pub enum TileKind {
     Floor,
     Wall,
+    Exit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -147,6 +155,16 @@ impl Tile {
             kind: TileKind::Wall,
             spritesheet: SpriteSheetKind::Level,
             index: 1,
+            width: 1,
+            height: 1,
+        }
+    }
+
+    fn exit() -> Self {
+        Tile {
+            kind: TileKind::Exit,
+            spritesheet: SpriteSheetKind::Level,
+            index: 2,
             width: 1,
             height: 1,
         }
@@ -237,15 +255,15 @@ impl TileGrid {
         }
     }
 
-    fn get_tile(&self, pos: GridPos) -> Option<Tile> {
+    pub fn get_tile(&self, pos: GridPos) -> Option<Tile> {
         self.tiles.get(&pos).copied()
     }
 
     pub fn is_walkable(&self, pos: GridPos) -> bool {
-        match self.tiles.get(&pos) {
-            Some(tile) if tile.kind == TileKind::Floor => true,
-            _ => false,
-        }
+        matches!(
+            self.get_tile(pos).map(|tile| tile.kind),
+            Some(TileKind::Floor) | Some(TileKind::Exit)
+        )
     }
 
     fn grid_to_world(&self, row: i32, col: i32) -> Vec2 {
@@ -273,6 +291,10 @@ fn setup(
         min: UVec2::new(16, 0),
         max: UVec2::new(32, 16),
     }); // index 1
+    layout_level.add_texture(bevy::math::URect {
+        min: UVec2::new(32, 0),
+        max: UVec2::new(48, 16),
+    }); // index 2
 
     let layout_handle_level = atlas_layouts.add(layout_level);
     spritesheet_registry
@@ -312,6 +334,9 @@ fn build_tile_grid(layout: &LevelLayout) -> TileGrid {
     for (row, col) in &layout.walls {
         tile_grid.set_tile(GridPos::new(*row, *col), Tile::wall());
     }
+
+    // the maze's exit; reaching it ends the game (see player::check_exit_reached)
+    tile_grid.set_tile(GridPos::new(-4, -9), Tile::exit());
 
     tile_grid
 }
