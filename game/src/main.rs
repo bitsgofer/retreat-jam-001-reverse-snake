@@ -9,6 +9,9 @@ use crate::level::LevelPlugin;
 mod tunables;
 use crate::tunables::TunablesPlugin;
 
+mod screens;
+use crate::screens::ScreensPlugin;
+
 fn main() {
     App::new()
         .add_plugins(
@@ -25,6 +28,7 @@ fn main() {
         )
         .add_systems(Startup, setup_camera)
         .add_plugins(TunablesPlugin)
+        .add_plugins(ScreensPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(LevelPlugin)
         .run();

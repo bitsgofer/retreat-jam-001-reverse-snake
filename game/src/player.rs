@@ -5,6 +5,7 @@ use crate::level::GridPos;
 use crate::level::TILE_SIZE as GRID_TILE_SIZE;
 use crate::level::TileGrid;
 use crate::level::TileKind;
+use crate::screens::AppState;
 use crate::tunables::{self, Tunables, TunablesHandle};
 
 pub struct PlayerPlugin;
@@ -20,7 +21,8 @@ impl Plugin for PlayerPlugin {
                 animate_player,
                 apply_tunables_hot_reload,
             )
-                .chain(),
+                .chain()
+                .run_if(in_state(AppState::Playing)),
         );
     }
 }
