@@ -24,6 +24,17 @@ fn main() {
                 .set(bevy::log::LogPlugin {
                     level: bevy::log::Level::INFO,
                     ..default()
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "reverse-snake".into(),
+                        // No-op outside wasm32: resizes the canvas to fill
+                        // its parent element, so the itch.io browser embed
+                        // isn't stuck at a fixed pixel size.
+                        fit_canvas_to_parent: true,
+                        ..default()
+                    }),
+                    ..default()
                 }),
         )
         .add_systems(Startup, setup_camera)

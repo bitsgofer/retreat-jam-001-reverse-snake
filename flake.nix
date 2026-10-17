@@ -29,6 +29,15 @@
 			pkgs.clippy
             pkgs.cargo
             pkgs.nixfmt
+            # Release packaging (itch.io): linking the wasm32-unknown-unknown
+            # target (lld), generating its JS glue (wasm-bindgen-cli, pinned
+            # in game/Cargo.toml to match this exact version), and zipping
+            # up the Linux/web builds.
+            pkgs.lld
+            pkgs.wasm-bindgen-cli
+            pkgs.binaryen # wasm-opt: shrinks the unprocessed ~60MB wasm32 build
+            pkgs.patchelf # de-nixifies the Linux release binary, see `just package-linux`
+            pkgs.zip
           ]
           ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.pkg-config

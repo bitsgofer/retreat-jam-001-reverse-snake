@@ -4,5 +4,8 @@
 # Rust
 /target
 
+# Packaged release builds (itch.io), see `just package`
+/dist
+
 # Worktrees
 /ai-code

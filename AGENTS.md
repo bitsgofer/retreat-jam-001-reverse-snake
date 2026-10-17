@@ -107,6 +107,12 @@ below):
   `*.nix` files when using `fmt-all`
 - `just lint` — `cargo fmt --check` + `cargo clippy --workspace -- -D
   warnings`
+- `just package` — build itch.io-ready zips for Linux (`dist/reverse-snake-linux.zip`)
+  and the browser (`dist/reverse-snake-web.zip`, WASM); `just package-linux` /
+  `just package-web` build just one. See `[profile.release]` in the root
+  `Cargo.toml` and the `release` group in the Justfile for how these work
+  (de-nixifying the Linux binary with `patchelf`, `wasm-bindgen` +
+  `wasm-opt` for the web build).
 
 There is no test suite or CI configured yet. Always run `just lint`
 before considering Rust changes done.

@@ -13,3 +13,11 @@ edition = "2024"
 [workspace.dependencies]
 bevy = { version = "0.20.0" }
 log  = { version = "0.4.34" }
+
+# Distribution builds (itch.io): smaller, faster binaries at the cost of a
+# slower release build. Dev builds use the default (unoptimized) profile.
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+strip         = true
